@@ -325,7 +325,229 @@ async function main() {
       });
     }
   }
+  // Create 5 tables for each branch
+  for (const branch of branchData) {
+    const branchRecord = await prisma.branch.findFirst({
+      where: { branchName: branch.branchName },
+    });
 
+    if (!branchRecord) continue;
+
+    for (let tableNumber = 1; tableNumber <= 5; tableNumber++) {
+      const existingTable = await prisma.table.findFirst({
+        where: {
+          tableNumber,
+          branchId: branchRecord.branchId,
+        },
+      });
+
+      if (!existingTable) {
+        await prisma.table.create({
+          data: {
+            tableNumber,
+            capacity: tableNumber <= 2 ? 2 : 4,
+            status: "Available",
+            branchId: branchRecord.branchId,
+          },
+        });
+      }
+    }
+  }
+
+  // Create inventory for every menu item in every branch
+  const allMenuItems = await prisma.menuItem.findMany();
+  const allBranches = await prisma.branch.findMany();
+
+  for (const branch of allBranches) {
+    for (const item of allMenuItems) {
+      const existingInventory = await prisma.inventory.findFirst({
+        where: {
+          ingredientName: item.itemName,
+          branchId: branch.branchId,
+        },
+      });
+
+      if (!existingInventory) {
+        await prisma.inventory.create({
+          data: {
+            ingredientName: item.itemName,
+            quantityInStock: 20,
+            unit: "pcs",
+            branchId: branch.branchId,
+          },
+        });
+      }
+    }
+  }
+
+  // Create sample customers
+  const customerData = [
+    {
+      firstName: "John",
+      lastName: "Smith",
+      phoneNumber: "07123456789",
+      email: "john.smith@example.com",
+    },
+    {
+      firstName: "Sarah",
+      lastName: "Johnson",
+      phoneNumber: "07987654321",
+      email: "sarah.johnson@example.com",
+    },
+    {
+      firstName: "Michael",
+      lastName: "Brown",
+      phoneNumber: "07811223344",
+      email: "michael.brown@example.com",
+    },
+  ];
+
+  const customers = [];
+
+  for (const customer of customerData) {
+    const existingCustomer = await prisma.customer.findFirst({
+      where: { email: customer.email },
+    });
+
+    if (existingCustomer) {
+      customers.push(existingCustomer);
+    } else {
+      const createdCustomer = await prisma.customer.create({
+        data: customer,
+      });
+
+      customers.push(createdCustomer);
+    }
+  }
+
+  // Create sample orders, order items and payments for London branch
+  const londonBranch = await prisma.branch.findFirst({
+    where: { location: "London Central" },
+  });
+
+  const londonWaiter = await prisma.user.findFirst({
+    where: { email: "waiter.london.central@steakz.com" },
+  });
+
+  const londonTable1 = await prisma.table.findFirst({
+    where: {
+      branchId: londonBranch?.branchId,
+      tableNumber: 1,
+    },
+  });
+
+  const londonTable2 = await prisma.table.findFirst({
+    where: {
+      branchId: londonBranch?.branchId,
+      tableNumber: 2,
+    },
+  });
+
+  const tBoneSteak = await prisma.menuItem.findFirst({
+    where: { itemName: "T-Bone Steak" },
+  });
+
+  const classicBurger = await prisma.menuItem.findFirst({
+    where: { itemName: "Classic Burger" },
+  });
+
+  const frenchFries = await prisma.menuItem.findFirst({
+    where: { itemName: "French Fries" },
+  });
+
+  if (
+    londonBranch &&
+    londonWaiter &&
+    londonTable1 &&
+    londonTable2 &&
+    tBoneSteak &&
+    classicBurger &&
+    frenchFries &&
+    customers.length >= 2
+  ) {
+    const existingPaidOrder = await prisma.order.findFirst({
+      where: {
+        branchId: londonBranch.branchId,
+        tableId: londonTable1.tableId,
+        orderStatus: "Paid",
+      },
+    });
+
+    if (!existingPaidOrder) {
+      const orderTotal = tBoneSteak.price + frenchFries.price;
+
+      const order = await prisma.order.create({
+        data: {
+          customerId: customers[0].customerId,
+          branchId: londonBranch.branchId,
+          userId: londonWaiter.userId,
+          tableId: londonTable1.tableId,
+          orderStatus: "Paid",
+          totalAmount: orderTotal,
+          orderItems: {
+            create: [
+              {
+                menuItemId: tBoneSteak.menuItemId,
+                quantity: 1,
+                subtotal: tBoneSteak.price,
+              },
+              {
+                menuItemId: frenchFries.menuItemId,
+                quantity: 1,
+                subtotal: frenchFries.price,
+              },
+            ],
+          },
+        },
+      });
+
+      await prisma.payment.create({
+        data: {
+          paymentMethod: "Card",
+          amount: orderTotal,
+          paymentStatus: "Paid",
+          orderId: order.orderId,
+        },
+      });
+    }
+
+    const existingCompletedOrder = await prisma.order.findFirst({
+      where: {
+        branchId: londonBranch.branchId,
+        tableId: londonTable2.tableId,
+        orderStatus: "Completed",
+      },
+    });
+
+    if (!existingCompletedOrder) {
+      const orderTotal = classicBurger.price + frenchFries.price;
+
+      await prisma.order.create({
+        data: {
+          customerId: customers[1].customerId,
+          branchId: londonBranch.branchId,
+          userId: londonWaiter.userId,
+          tableId: londonTable2.tableId,
+          orderStatus: "Completed",
+          totalAmount: orderTotal,
+          orderItems: {
+            create: [
+              {
+                menuItemId: classicBurger.menuItemId,
+                quantity: 1,
+                subtotal: classicBurger.price,
+              },
+              {
+                menuItemId: frenchFries.menuItemId,
+                quantity: 1,
+                subtotal: frenchFries.price,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
   console.log("Seed completed successfully.");
 }
 

@@ -110,6 +110,7 @@ router.get("/orders", async (req: AuthRequest, res) => {
         branch: true,
         user: true,
         table: true,
+        customer: true,
         orderItems: {
           include: { menuItem: true },
         },
@@ -128,7 +129,7 @@ router.get("/orders", async (req: AuthRequest, res) => {
 
 router.post("/orders", async (req: AuthRequest, res) => {
   try {
-    const { tableId, items } = req.body;
+    const { tableId, items, customer } = req.body;
     const waiterId = req.user?.userId;
 
     if (!waiterId) {
@@ -161,6 +162,35 @@ router.post("/orders", async (req: AuthRequest, res) => {
       return res.status(400).json({
         message: "Order must contain at least one item",
       });
+    }
+
+    let customerId: number | undefined = undefined;
+
+    if (customer) {
+      if (!customer.firstName || !customer.lastName) {
+        return res.status(400).json({
+          message: "Customer first name and last name are required",
+        });
+      }
+
+      const existingCustomer = customer.email
+        ? await prisma.customer.findFirst({
+            where: { email: customer.email },
+          })
+        : null;
+
+      const orderCustomer =
+        existingCustomer ||
+        (await prisma.customer.create({
+          data: {
+            firstName: customer.firstName,
+            lastName: customer.lastName,
+            phoneNumber: customer.phoneNumber || null,
+            email: customer.email || null,
+          },
+        }));
+
+      customerId = orderCustomer.customerId;
     }
 
     const menuItems = await prisma.menuItem.findMany({
@@ -226,6 +256,7 @@ router.post("/orders", async (req: AuthRequest, res) => {
 
     const order = await prisma.order.create({
       data: {
+        customerId,
         branchId: waiter.branchId,
         userId: waiterId,
         tableId: Number(tableId),
@@ -249,6 +280,7 @@ router.post("/orders", async (req: AuthRequest, res) => {
         branch: true,
         user: true,
         table: true,
+        customer: true,
         orderItems: {
           include: { menuItem: true },
         },
